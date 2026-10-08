@@ -1,0 +1,96 @@
+name: CI
+
+# Third-party actions are pinned to full commit SHAs (verified, signed commits); the comment
+# names the release. Update them deliberately, never by moving tag.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    # Windows-first: the install engine and its integration tests target Windows x64.
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      # Runs before anything else: proves the scanner detects every category without
+      # printing values, then scans every committable file for personal data and secrets.
+      - name: Privacy scanner self-test
+        shell: pwsh
+        run: ./scripts/privacy-scan.ps1 -SelfTest
+      - name: Repository privacy scan
+        shell: pwsh
+        run: ./scripts/privacy-scan.ps1 -Mode Repo
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.16"
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master @ 2026-10-01
+        with:
+          toolchain: "1.99.0"
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Frontend format
+        run: npm run format:check
+      - name: Frontend lint
+        run: npm run lint
+      - name: Frontend typecheck
+        run: npm run typecheck
+      - name: Frontend tests
+        run: npm test
+      - name: Frontend build
+        run: npm run build
+
+      - name: Rust format
+        run: cargo fmt --all --check
+      - name: Rust clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Rust tests (no network; local mock GitHub + ZIP fixtures)
+        run: cargo test --workspace
+
+  release-build:
+    # Full release build exactly as published (path remapping, /Brepro), followed by the
+    # release privacy scan of the exe and installer. Nothing is uploaded.
+    needs: checks
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.16"
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master @ 2026-10-01
+        with:
+          toolchain: "1.99.0"
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - run: npm ci
+
+      - name: Release build + release privacy scan
+        shell: pwsh
+        run: ./scripts/build-release.ps1 --bundles nsis

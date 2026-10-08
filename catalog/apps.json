@@ -1,0 +1,323 @@
+{
+  "schemaVersion": 3,
+  "source": "curated Storytold public repositories; Windows adapters reflect docs/RELEASE_AUDIT.md",
+  "updated": "2026-10-08",
+  "applications": [
+    {
+      "id": "photocraft",
+      "name": "PhotoCraft",
+      "description": "Image editing",
+      "category": "craft-suite",
+      "repo": "storytold/photocraft",
+      "tagPrefix": "v",
+      "windowsX64": {
+        "format": "portable-zip",
+        "variants": [
+          {
+            "assetStem": "photocraft",
+            "executable": "photocraft.exe"
+          }
+        ],
+        "stripFiles": [
+          "portable.txt"
+        ],
+        "verified": true,
+        "audit": {
+          "date": "2026-10-08",
+          "version": "v0.5.0",
+          "reference": "docs/RELEASE_AUDIT.md"
+        }
+      },
+      "notes": null
+    },
+    {
+      "id": "vectorcraft",
+      "name": "VectorCraft",
+      "description": "Vector illustration",
+      "category": "craft-suite",
+      "repo": "storytold/vectorcraft",
+      "tagPrefix": "v",
+      "windowsX64": {
+        "format": "portable-zip",
+        "variants": [
+          {
+            "assetStem": "vectorcraft",
+            "executable": "vectorcraft.exe"
+          }
+        ],
+        "stripFiles": [],
+        "verified": true,
+        "audit": {
+          "date": "2026-10-08",
+          "version": "v0.6.0",
+          "reference": "docs/RELEASE_AUDIT.md"
+        }
+      },
+      "notes": null
+    },
+    {
+      "id": "filmcraft",
+      "name": "FilmCraft",
+      "description": "Video editing",
+      "category": "craft-suite",
+      "repo": "storytold/filmcraft",
+      "tagPrefix": "v",
+      "windowsX64": {
+        "format": "portable-zip",
+        "variants": [
+          {
+            "assetStem": "filmcraft",
+            "executable": "filmcraft.exe"
+          }
+        ],
+        "stripFiles": [],
+        "verified": true,
+        "audit": {
+          "date": "2026-10-08",
+          "version": "v0.4.0",
+          "reference": "docs/RELEASE_AUDIT.md"
+        }
+      },
+      "notes": null
+    },
+    {
+      "id": "lightcraft",
+      "name": "LightCraft",
+      "description": "Photo management and RAW development",
+      "category": "craft-suite",
+      "repo": "storytold/lightcraft",
+      "tagPrefix": "v",
+      "windowsX64": {
+        "format": "portable-zip",
+        "variants": [
+          {
+            "assetStem": "lightcraft",
+            "executable": "lightcraft.exe"
+          }
+        ],
+        "stripFiles": [],
+        "verified": true,
+        "audit": {
+          "date": "2026-10-08",
+          "version": "v0.4.0",
+          "reference": "docs/RELEASE_AUDIT.md"
+        }
+      },
+      "notes": null
+    },
+    {
+      "id": "pdfcraft",
+      "name": "PDFCraft",
+      "description": "PDF editing",
+      "category": "craft-suite",
+      "repo": "storytold/pdfcraft",
+      "tagPrefix": "v",
+      "windowsX64": {
+        "format": "portable-zip",
+        "variants": [
+          {
+            "assetStem": "pdfcraft",
+            "executable": "pdfcraft.exe"
+          },
+          {
+            "assetStem": "printcraft",
+            "executable": "printcraft.exe"
+          }
+        ],
+        "stripFiles": [],
+        "verified": true,
+        "audit": {
+          "date": "2026-10-08",
+          "version": "v0.4.0",
+          "reference": "docs/RELEASE_AUDIT.md"
+        }
+      },
+      "notes": null
+    },
+    {
+      "id": "effectcraft",
+      "name": "EffectCraft",
+      "description": "Motion graphics and effects",
+      "category": "craft-suite",
+      "repo": "storytold/effectcraft",
+      "tagPrefix": "v",
+      "windowsX64": {
+        "format": "portable-zip",
+        "variants": [
+          {
+            "assetStem": "effectcraft",
+            "executable": "effectcraft.exe"
+          }
+        ],
+        "stripFiles": [],
+        "verified": true,
+        "audit": {
+          "date": "2026-10-08",
+          "version": "v0.6.0",
+          "reference": "docs/RELEASE_AUDIT.md"
+        }
+      },
+      "notes": null
+    },
+    {
+      "id": "designcraft",
+      "name": "DesignCraft",
+      "description": "Desktop publishing",
+      "category": "craft-suite",
+      "repo": "storytold/designcraft",
+      "tagPrefix": "v",
+      "windowsX64": {
+        "format": "portable-zip",
+        "variants": [
+          {
+            "assetStem": "designcraft",
+            "executable": "designcraft.exe"
+          }
+        ],
+        "stripFiles": [],
+        "verified": true,
+        "audit": {
+          "date": "2026-10-08",
+          "version": "v0.4.0",
+          "reference": "docs/RELEASE_AUDIT.md"
+        }
+      },
+      "notes": null
+    },
+    {
+      "id": "soundcraft",
+      "name": "SoundCraft",
+      "description": "Audio editing",
+      "category": "craft-suite",
+      "repo": "storytold/soundcraft",
+      "tagPrefix": "v",
+      "windowsX64": {
+        "format": "portable-zip",
+        "variants": [
+          {
+            "assetStem": "soundcraft",
+            "executable": "soundcraft.exe"
+          }
+        ],
+        "stripFiles": [],
+        "verified": true,
+        "audit": {
+          "date": "2026-10-08",
+          "version": "v0.3.0",
+          "reference": "docs/RELEASE_AUDIT.md"
+        }
+      },
+      "notes": null
+    },
+    {
+      "id": "wordcraft",
+      "name": "WordCraft",
+      "description": "Word processing",
+      "category": "craft-suite",
+      "repo": "storytold/wordcraft",
+      "tagPrefix": "v",
+      "windowsX64": {
+        "format": "portable-zip",
+        "variants": [
+          {
+            "assetStem": "wordcraft",
+            "executable": "wordcraft.exe"
+          }
+        ],
+        "stripFiles": [],
+        "verified": true,
+        "audit": {
+          "date": "2026-10-08",
+          "version": "v0.3.0",
+          "reference": "docs/RELEASE_AUDIT.md"
+        }
+      },
+      "notes": null
+    },
+    {
+      "id": "gridcraft",
+      "name": "GridCraft",
+      "description": "Spreadsheets",
+      "category": "craft-suite",
+      "repo": "storytold/gridcraft",
+      "tagPrefix": "v",
+      "windowsX64": {
+        "format": "portable-zip",
+        "variants": [
+          {
+            "assetStem": "gridcraft",
+            "executable": "gridcraft.exe"
+          }
+        ],
+        "stripFiles": [],
+        "verified": true,
+        "audit": {
+          "date": "2026-10-08",
+          "version": "v0.3.0",
+          "reference": "docs/RELEASE_AUDIT.md"
+        }
+      },
+      "notes": null
+    },
+    {
+      "id": "deckcraft",
+      "name": "DeckCraft",
+      "description": "Presentations",
+      "category": "craft-suite",
+      "repo": "storytold/deckcraft",
+      "tagPrefix": "v",
+      "windowsX64": {
+        "format": "portable-zip",
+        "variants": [
+          {
+            "assetStem": "deckcraft",
+            "executable": "deckcraft.exe"
+          }
+        ],
+        "stripFiles": [],
+        "verified": true,
+        "audit": {
+          "date": "2026-10-08",
+          "version": "v0.3.0",
+          "reference": "docs/RELEASE_AUDIT.md"
+        }
+      },
+      "notes": null
+    },
+    {
+      "id": "cadcraft",
+      "name": "CADCraft",
+      "description": "Computer-aided design",
+      "category": "craft-suite",
+      "repo": "storytold/cadcraft",
+      "tagPrefix": "v",
+      "windowsX64": {
+        "format": "portable-zip",
+        "variants": [
+          {
+            "assetStem": "cadcraft",
+            "executable": "cadcraft.exe"
+          }
+        ],
+        "stripFiles": [],
+        "verified": true,
+        "audit": {
+          "date": "2026-10-08",
+          "version": "v0.3.0",
+          "reference": "docs/RELEASE_AUDIT.md"
+        }
+      },
+      "notes": null
+    },
+    {
+      "id": "artcraft",
+      "name": "ArtCraft",
+      "description": "AI creative studio (separate product)",
+      "category": "ai-studio",
+      "repo": "storytold/artcraft",
+      "tagPrefix": "artcraft-v",
+      "windowsX64": null,
+      "notes": "Windows releases ship only an NSIS setup.exe and an MSI (rechecked 2026-10-08, artcraft-v0.41.0). CraftHub does not run downloaded installers, so ArtCraft cannot be installed here yet."
+    }
+  ]
+}

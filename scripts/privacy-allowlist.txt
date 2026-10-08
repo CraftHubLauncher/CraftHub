@@ -1,0 +1,5 @@
+# Third-party contact strings that are legitimately compiled into CraftHub's binaries.
+# One lowercase e-mail address per line. Add an entry only after checking where it comes from.
+
+# ring (TLS crypto): author credit embedded by its OpenSSL-derived assembly code
+appro@openssl.org

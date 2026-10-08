@@ -1,0 +1,17 @@
+# Normalize text to LF in the repository; check out with the platform default.
+* text=auto eol=lf
+
+# Windows scripts keep CRLF on checkout.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binary assets
+*.png binary
+*.ico binary
+*.icns binary
+*.zip binary
+
+# Lockfiles: don't show diffs by default; never merge-guess.
+package-lock.json -diff merge=binary
+Cargo.lock -diff merge=binary

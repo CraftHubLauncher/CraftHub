@@ -1,0 +1,36 @@
+[package]
+name = "crafthub"
+description = "CraftHub — unofficial community manager for Storytold's Craft apps"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = false
+
+[lib]
+name = "crafthub_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.1", features = [] }
+
+[dependencies]
+base64 = "0.22.1"
+crafthub-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2.12.1", features = ["tray-icon"] }
+tauri-plugin-dialog = "2.8.1"
+tauri-plugin-opener = "2.7.0"
+tauri-plugin-single-instance = "2.5.2"
+tauri-plugin-updater = "2.13.2"
+tokio.workspace = true
+tracing.workspace = true
+tracing-appender = "0.2.5"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+url = "2.5.8"
+
+[target.'cfg(windows)'.dependencies]
+tauri-winrt-notification = "0.8.1"

@@ -1,0 +1,42 @@
+# Dependencies and build output
+node_modules/
+dist/
+target/
+coverage/
+.vite/
+*.tsbuildinfo
+
+# Tauri generated files
+src-tauri/gen/schemas/
+
+# Logs, local databases, crash dumps
+*.log
+logs/
+*.db
+*.db-shm
+*.db-wal
+*.dmp
+
+# Environment and secrets (never commit signing keys or tokens)
+.env
+.env.*
+*.key
+*.pem
+*.pfx
+*.p12
+*.minisign
+tauri-signing*.key
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Private AI/development material lives outside this repository
+CLAUDE.md
+.claude/
+AGENTS.md

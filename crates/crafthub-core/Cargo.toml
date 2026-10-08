@@ -1,0 +1,54 @@
+[package]
+name = "crafthub-core"
+description = "Catalog, release discovery, transactional install/update engine for CraftHub"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = false
+
+[dependencies]
+futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
+hex = "0.4.3"
+# TLS: rustls with the `ring` provider (installed in net.rs). The default aws-lc provider is
+# avoided because its C sources embed absolute build paths in release binaries.
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "stream", "http2", "system-proxy"] }
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+semver = { version = "1.0.28", features = ["serde"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.11.0"
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+url = "2.5.8"
+uuid = { version = "1.27.0", features = ["v4"] }
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_Threading",
+] }
+windows = { version = "0.62.2", features = [
+  "Win32_Foundation",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Com",
+  "Win32_UI_Shell",
+] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
+wiremock = "0.6.5"
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+
+[[bin]]
+name = "crafthub-cli"
+path = "src/bin/crafthub-cli.rs"

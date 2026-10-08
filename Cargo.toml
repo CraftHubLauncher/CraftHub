@@ -1,0 +1,25 @@
+[workspace]
+resolver = "3"
+members = ["crates/crafthub-core", "src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/CraftHubLauncher/CraftHub"
+homepage = "https://github.com/CraftHubLauncher/CraftHub"
+
+[workspace.dependencies]
+crafthub-core = { path = "crates/crafthub-core" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+thiserror = "2.0.21"
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "fs", "io-util", "sync", "time"] }
+tokio-util = "0.7.19"
+tracing = "0.1.44"
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true

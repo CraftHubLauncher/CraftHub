@@ -1,0 +1,5 @@
+[toolchain]
+# Tauri 2.12 requires rustc >= 1.90. Pinned for reproducible local and CI builds.
+channel = "1.99.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
