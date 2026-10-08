@@ -52,13 +52,20 @@ $Generic = [ordered]@{
 $EmailPattern = '[A-Za-z0-9._%+-]{2,64}@(?:[A-Za-z0-9-]{1,63}\.)+[a-z]{2,24}\b'
 $NotEmailTld = '\.(png|svg|jpg|jpeg|gif|ico|js|css|json|rs|ts|tsx|html|md|txt|exe|dll)$'
 $RepoEmailOk = '@(example\.(com|org|net)|users\.noreply\.github\.com|noreply\.github\.com)$'
+# These are shared CI/service accounts, not personal identities. Their bare names are
+# common ordinary words in workflows and source code; paths and other detectors still
+# catch identifying data associated with them.
+$GenericCiUserNames = @('runner')
 
 function Get-EnvNeedles {
   $n = [ordered]@{}
   $userName = if ($env:USERNAME) { $env:USERNAME } else { $env:USER }
   $computerName = if ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { $env:HOSTNAME }
   $profilePath = if ($env:USERPROFILE) { $env:USERPROFILE } else { $env:HOME }
-  if ($userName -and $userName.Length -ge 3) { $n['this user name'] = $userName }
+  if ($userName -and $userName.Length -ge 3 -and
+      $GenericCiUserNames -notcontains $userName.ToLowerInvariant()) {
+    $n['this user name'] = $userName
+  }
   if ($computerName -and $computerName.Length -ge 3) { $n['this computer name'] = $computerName }
   if ($profilePath) { $n['this profile path'] = $profilePath }
   $n['this repository path'] = $repo
@@ -287,6 +294,13 @@ if ($SelfTest) {
     if (-not $selfTestUser -or $selfTestUser.Length -lt 3) {
       throw 'self-test cannot determine the current username from USERNAME or USER'
     }
+    $selfTestNeedles = Get-EnvNeedles
+    if ($GenericCiUserNames -contains $selfTestUser.ToLowerInvariant()) {
+      # Keep testing the username detector without making a generic service account
+      # name a repository-wide needle.
+      $selfTestUser = 'privacy-selftest-user'
+      $selfTestNeedles['this user name'] = $selfTestUser
+    }
     $samples = [ordered]@{
       'user-profile path'      = 'C:' + '\Users\' + 'samplebuilder\src\lib.rs'
       'cargo/rustup home path' = 'D:\x\' + '.cargo\registry\src\foo.rs'
@@ -304,7 +318,7 @@ if ($SelfTest) {
     Set-Content (Join-Path $tmp 'clean.txt') 'Contact: someone@example.com; path %LOCALAPPDATA%\CraftHub' -Encoding ascii
     $log = Join-Path $tmp 'out.log'
     $files = Get-ChildItem $tmp -Filter *.txt | ForEach-Object FullName
-    $output = & { Invoke-Scan $files 'repo' (Get-EnvNeedles) $tmp } *>&1 | Out-String
+    $output = & { Invoke-Scan $files 'repo' $selfTestNeedles $tmp } *>&1 | Out-String
 
     # Binary asset samples (built here, never stored in the repository).
     $mail = 'sample.person' + '@' + 'mail-provider.test'

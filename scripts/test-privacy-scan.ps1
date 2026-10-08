@@ -11,6 +11,7 @@ $runner = if (Get-Command pwsh -ErrorAction SilentlyContinue) { (Get-Command pws
 $oldGlobal = $env:GIT_CONFIG_GLOBAL
 $oldSystem = $env:GIT_CONFIG_SYSTEM
 $oldNoSystem = $env:GIT_CONFIG_NOSYSTEM
+$oldGitDir = $env:GIT_DIR
 $oldUsername = $env:USERNAME
 $oldUser = $env:USER
 $oldComputerName = $env:COMPUTERNAME
@@ -36,6 +37,17 @@ try {
     throw 'clean CI privacy scan did not report a clean result'
   }
 
+  # Ubuntu's shared service account is intentionally not a repository-wide word needle.
+  $env:USER = 'runner'
+  $env:HOME = Join-Path $tmp 'runner-home'
+  $env:HOSTNAME = 'runner-host'
+  $runnerOutput = & $runner -NoProfile -ExecutionPolicy Bypass -File $scanner -Mode Repo *>&1 | Out-String
+  $runnerCode = $LASTEXITCODE
+  if ($runnerCode -ne 0) { throw "generic Linux service-account scan returned exit code $runnerCode`n$runnerOutput" }
+  if ($runnerOutput -notmatch 'repository privacy scan: no findings') {
+    throw 'generic Linux service-account scan did not report a clean result'
+  }
+
   # Model Ubuntu, where USERNAME/USERPROFILE/COMPUTERNAME are absent and USER,
   # HOME and HOSTNAME are the portable environment sources.
   Remove-Item Env:USERNAME, Env:USERPROFILE, Env:COMPUTERNAME -ErrorAction SilentlyContinue
@@ -48,12 +60,35 @@ try {
   if ($linuxOutput -match 'linux-ci-user|linux-ci-host|linux-home') {
     throw 'Linux-style privacy self-test leaked an environment value'
   }
+
+  # Genuine personal identifiers remain findings: both home-path forms and a Git author
+  # identity are synthetic here and are never printed by the scanner.
+  $windowsPersonalPath = 'C:' + '\Users\' + 'private-person\CraftHub\source.rs'
+  $unixPersonalPath = '/home/' + 'private-person/CraftHub/source.rs'
+  $personalEmail = 'private.author' + '@' + 'example.invalid'
+  Set-Content (Join-Path $tmp 'personal-path-fixture.txt') "$windowsPersonalPath`n$unixPersonalPath" -Encoding ascii
+  $gitConfig = Join-Path $tmp 'synthetic-git-config'
+  Set-Content $gitConfig "[user]`n`t email = $personalEmail" -Encoding ascii
+  $env:GIT_CONFIG_GLOBAL = $gitConfig
+  $env:GIT_DIR = Join-Path $tmp 'missing-git-dir'
+  $personalOutput = & $runner -NoProfile -ExecutionPolicy Bypass -File $scanner -Mode Repo *>&1 | Out-String
+  $personalCode = $LASTEXITCODE
+  if ($personalCode -ne 1) { throw "personal-identifier regression returned exit code $personalCode" }
+  foreach ($category in @('user-profile path', 'unix home path', 'git user e-mail', 'e-mail address')) {
+    if ($personalOutput -notmatch [regex]::Escape($category)) {
+      throw "personal-identifier regression did not detect $category"
+    }
+  }
+  if ($personalOutput -match 'private-person|private\.author') {
+    throw 'personal-identifier regression leaked a synthetic value'
+  }
   Write-Host 'privacy scanner regression: clean CI and Linux-style environment passed'
 }
 finally {
   if ($null -eq $oldGlobal) { Remove-Item Env:GIT_CONFIG_GLOBAL -ErrorAction SilentlyContinue } else { $env:GIT_CONFIG_GLOBAL = $oldGlobal }
   if ($null -eq $oldSystem) { Remove-Item Env:GIT_CONFIG_SYSTEM -ErrorAction SilentlyContinue } else { $env:GIT_CONFIG_SYSTEM = $oldSystem }
   if ($null -eq $oldNoSystem) { Remove-Item Env:GIT_CONFIG_NOSYSTEM -ErrorAction SilentlyContinue } else { $env:GIT_CONFIG_NOSYSTEM = $oldNoSystem }
+  if ($null -eq $oldGitDir) { Remove-Item Env:GIT_DIR -ErrorAction SilentlyContinue } else { $env:GIT_DIR = $oldGitDir }
   if ($null -eq $oldUsername) { Remove-Item Env:USERNAME -ErrorAction SilentlyContinue } else { $env:USERNAME = $oldUsername }
   if ($null -eq $oldUser) { Remove-Item Env:USER -ErrorAction SilentlyContinue } else { $env:USER = $oldUser }
   if ($null -eq $oldComputerName) { Remove-Item Env:COMPUTERNAME -ErrorAction SilentlyContinue } else { $env:COMPUTERNAME = $oldComputerName }
