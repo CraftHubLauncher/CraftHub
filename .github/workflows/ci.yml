@@ -72,7 +72,7 @@ jobs:
 
   release-build:
     # Full release build exactly as published (path remapping, /Brepro), followed by the
-    # release privacy scan of the exe and installer. Nothing is uploaded.
+    # release privacy scan of the exe and installer. Only the NSIS installer is retained.
     needs: checks
     runs-on: windows-latest
     timeout-minutes: 60
@@ -97,3 +97,10 @@ jobs:
       - name: Release build + release privacy scan
         shell: pwsh
         run: ./scripts/build-release.ps1 --bundles nsis
+
+      - name: Upload NSIS installer artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: crafthub-nsis-installer
+          path: target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
