@@ -7,6 +7,25 @@ npm ci
 ./scripts/build-release.ps1 -- --bundles nsis   # release binary + NSIS installer (per-user, no admin)
 ```
 
+## Linux x86_64 packages
+
+The Linux release job is a native Tauri build and produces both required formats:
+
+```bash
+npm ci
+bash ./scripts/build-release-linux.sh
+```
+
+The host needs `libwebkit2gtk-4.1-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`,
+`patchelf`, `xvfb`, and the standard C/C++ build tools. CI validates package metadata, launches
+both packages under Xvfb, runs the Linux release privacy scan, and uploads the AppImage and Debian
+package as separate artifacts. The AppImage is validated on Ubuntu; CachyOS/Arch verification is
+still required manually because WebKitGTK and desktop integration vary by distribution.
+
+Linux packages use CraftHub's existing product name, identifier, version and Tauri icon set.
+Self-update remains disabled. Craft application install/update/rollback/uninstall remains
+Windows-only until Linux-specific catalog and filesystem behavior is audited.
+
 ## Release workflow integrity
 
 - Third-party GitHub Actions are pinned to full commit SHAs whose commits GitHub shows as
@@ -41,6 +60,7 @@ they stay normal linker output that can be Authenticode-signed:
 | `-SelfTest` | CI, release workflow | Plants synthetic samples of every category and fails unless all are detected and none is printed |
 | `-Mode Repo` | CI, release workflow | Every committable text file, plus binary assets: images must carry no metadata (PNG text/EXIF/time/unknown chunks, also inside ICO/ICNS; JPEG/WebP EXIF; XMP), decoded metadata and ICC profiles are pattern-checked, and executables, archives, databases and key stores are rejected |
 | `-Mode Release` | end of `build-release.ps1` (local, CI `release-build` job, release workflow) | `crafthub.exe`, the installer and their version-info fields |
+| `-Mode LinuxRelease` | end of `build-release-linux.sh` (CI and release workflow) | the AppImage and Debian package |
 
 Categories: this machine's user name, computer name, profile path, repository path and Git
 e-mail; any `C:\Users\<name>\` path; Cargo/rustup home paths; Unix home paths; absolute PDB

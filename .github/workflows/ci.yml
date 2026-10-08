@@ -104,3 +104,110 @@ jobs:
           name: crafthub-nsis-installer
           path: target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
+
+  linux-release-build:
+    # Linux packages are a separate native build. The Windows job above remains the
+    # authoritative NSIS build and is intentionally unchanged.
+    needs: checks
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Install Tauri Linux build and smoke-test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev patchelf xvfb
+
+      - name: Privacy scanner self-test
+        shell: pwsh
+        run: ./scripts/privacy-scan.ps1 -SelfTest
+      - name: Repository privacy scan
+        shell: pwsh
+        run: ./scripts/privacy-scan.ps1 -Mode Repo
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.16"
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master @ 2026-10-01
+        with:
+          toolchain: "1.99.0"
+          targets: x86_64-unknown-linux-gnu
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Frontend build
+        run: npm run build
+      - name: Rust Linux checks
+        run: |
+          cargo fmt --all --check
+          cargo test --workspace --locked
+          cargo test -p crafthub-core apps_without_adapter_are_never_installable --locked
+
+      - name: Build AppImage and Debian packages
+        run: bash ./scripts/build-release-linux.sh
+
+      - name: Verify package metadata and launch behavior
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          appimage=(target/release/bundle/appimage/*.AppImage)
+          deb=(target/release/bundle/deb/*.deb)
+          [[ ${#appimage[@]} -eq 1 && ${#deb[@]} -eq 1 ]]
+          [[ "$(dpkg-deb -f "${deb[0]}" Package)" == "crafthub" ]]
+          [[ "$(dpkg-deb -f "${deb[0]}" Version)" == "0.1.0" ]]
+          [[ "$(dpkg-deb -f "${deb[0]}" Architecture)" == "amd64" ]]
+          file "${appimage[0]}" "${deb[0]}"
+          chmod +x "${appimage[0]}"
+
+          # A GUI process staying alive under Xvfb proves the AppImage starts. A
+          # non-timeout exit is a failed launch, not a tolerated smoke-test result.
+          set +e
+          timeout --signal=TERM 20s xvfb-run -a "${appimage[0]}" >/tmp/crafthub-appimage.log 2>&1
+          appimage_code=$?
+          set -e
+          if [[ $appimage_code -ne 124 ]]; then
+            cat /tmp/crafthub-appimage.log
+            echo "AppImage exited before the launch window (status $appimage_code)" >&2
+            exit 1
+          fi
+
+          sudo apt-get install --yes "${deb[0]}"
+          command -v crafthub
+          set +e
+          timeout --signal=TERM 20s xvfb-run -a crafthub >/tmp/crafthub-deb.log 2>&1
+          deb_code=$?
+          set -e
+          if [[ $deb_code -ne 124 ]]; then
+            cat /tmp/crafthub-deb.log
+            echo "Installed Debian package exited before the launch window (status $deb_code)" >&2
+            exit 1
+          fi
+          sudo apt-get remove --yes crafthub
+          ! command -v crafthub
+
+      - name: Linux package privacy scan
+        shell: pwsh
+        run: ./scripts/privacy-scan.ps1 -Mode LinuxRelease
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: crafthub-linux-appimage
+          path: target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+
+      - name: Upload Debian artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: crafthub-linux-deb
+          path: target/release/bundle/deb/*.deb
+          if-no-files-found: error

@@ -5,6 +5,8 @@
 .DESCRIPTION
   -Mode Release  Scans target\release\crafthub.exe and the NSIS installer(s), including their
                  Windows version-info fields.
+  -Mode LinuxRelease
+                 Scans the AppImage and Debian bundle produced by the Linux release build.
   -Mode Repo     Scans every committable text file (skips node_modules, target, dist, gen), and
                  every binary asset: images must carry no metadata (PNG text/EXIF/time/unknown
                  chunks, also inside ICO/ICNS; JPEG/WebP EXIF; XMP), decoded metadata and ICC
@@ -29,7 +31,7 @@
   never modified.
 #>
 param(
-  [ValidateSet('Release', 'Repo')][string]$Mode = 'Release',
+  [ValidateSet('Release', 'LinuxRelease', 'Repo')][string]$Mode = 'Release',
   [switch]$SelfTest
 )
 
@@ -124,7 +126,7 @@ function Invoke-Scan([string[]]$files, [string]$kind, $needles, [string]$root) {
     # An installer's payload is compressed: e-mail-shaped byte runs there are noise. Its
     # contents (crafthub.exe) are scanned uncompressed, so only that check is skipped.
     $checkEmails = -not ($kind -eq 'binary' -and $f -match '-setup\.exe$')
-    if ($kind -eq 'binary') {
+    if ($kind -eq 'binary' -and $f -match '\.exe$') {
       $texts += [Text.Encoding]::Unicode.GetString($bytes)
       $vi = (Get-Item $f).VersionInfo
       $texts += (@($vi.CompanyName, $vi.ProductName, $vi.FileDescription, $vi.LegalCopyright,
@@ -341,6 +343,17 @@ if ($SelfTest) {
 $needles = Get-EnvNeedles
 if ($Mode -eq 'Release') {
   $bad = Invoke-Scan (Get-ReleaseTargets) 'binary' $needles $null
+} elseif ($Mode -eq 'LinuxRelease') {
+  $appimages = @(Get-ChildItem (Join-Path $repo 'target/release/bundle/appimage') -Filter *.AppImage -ErrorAction SilentlyContinue)
+  $debs = @(Get-ChildItem (Join-Path $repo 'target/release/bundle/deb') -Filter *.deb -ErrorAction SilentlyContinue)
+  $bad = 0
+  if ($appimages.Count -ne 1) { Write-Host "missing or unexpected AppImage count: $($appimages.Count)"; $bad++ }
+  if ($debs.Count -ne 1) { Write-Host "missing or unexpected Debian package count: $($debs.Count)"; $bad++ }
+  if (-not $bad) {
+    $linuxTargets = @($appimages | ForEach-Object FullName) + @($debs | ForEach-Object FullName)
+    $bad = Invoke-Scan $linuxTargets 'binary' $needles $null
+  }
+  if (-not $bad) { Write-Host 'Linux release privacy scan: AppImage and Debian packages passed' }
 } else {
   # The repo itself legitimately contains its own path only in nothing committed; drop it here.
   $needles.Remove('this repository path')

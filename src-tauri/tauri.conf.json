@@ -29,7 +29,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": ["nsis", "appimage", "deb"],
     "category": "Utility",
     "shortDescription": "Unofficial community manager for Storytold's Craft apps",
     "longDescription": "CraftHub installs, launches, updates and removes official Storytold Craft app releases from GitHub. Unofficial community application manager. Not affiliated with or endorsed by Storytold or ArtCraft.",

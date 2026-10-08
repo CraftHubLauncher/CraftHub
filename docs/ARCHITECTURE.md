@@ -103,9 +103,11 @@ drive, no links/UNC/system folders, empty or already a library, writable) and ma
 ## Platform adapters
 
 `platform/` contains the OS primitives. Windows is implemented; other targets compile to
-`unsupported.rs`, which returns explicit `Unsupported` errors. Catalog entries carry a
-`windowsX64` adapter only; Linux/macOS adapters (AppImage/tarball, app bundles) need their
-own audited catalog fields and installer paths before they are enabled.
+`unsupported.rs`, which returns explicit `Unsupported` errors for Craft application process,
+free-space, launch and folder operations. Linux packages therefore provide the CraftHub desktop
+UI but do not claim Craft application installation/update/rollback/uninstall support. Catalog
+entries carry a `windowsX64` adapter only; enabling Linux application management requires
+separately audited catalog fields and installer paths.
 
 ## Self-update
 

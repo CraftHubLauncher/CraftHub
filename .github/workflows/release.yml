@@ -1,4 +1,4 @@
-name: Release (Windows)
+name: Release (Windows and Linux)
 
 # Builds the CraftHub NSIS installer when a version tag (vX.Y.Z) is pushed and attaches it to a
 # DRAFT GitHub release for a maintainer to review and publish.
@@ -27,7 +27,102 @@ permissions:
   contents: read
 
 jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Install Tauri Linux build and smoke-test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev patchelf xvfb
+
+      - name: Privacy scanner self-test + repository scan
+        shell: pwsh
+        run: |
+          ./scripts/privacy-scan.ps1 -SelfTest
+          ./scripts/privacy-scan.ps1 -Mode Repo
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.16"
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master @ 2026-10-01
+        with:
+          toolchain: "1.99.0"
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Versions match the tag
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $tauri = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $npm = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $cargo = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          foreach ($v in @($tauri, $npm, $cargo)) {
+            if ("v$v" -ne $tag) { throw "tag $tag does not match versions tauri=$tauri npm=$npm cargo=$cargo" }
+          }
+
+      - name: Build both native Linux packages
+        run: |
+          npm ci
+          cargo fmt --all --check
+          cargo test --workspace --locked
+          cargo test -p crafthub-core apps_without_adapter_are_never_installable --locked
+          bash ./scripts/build-release-linux.sh
+
+      - name: Validate package metadata and launch under Xvfb
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          appimage=(target/release/bundle/appimage/*.AppImage)
+          deb=(target/release/bundle/deb/*.deb)
+          [[ ${#appimage[@]} -eq 1 && ${#deb[@]} -eq 1 ]]
+          [[ "$(dpkg-deb -f "${deb[0]}" Package)" == "crafthub" ]]
+          version="${GITHUB_REF_NAME#v}"
+          [[ "$(dpkg-deb -f "${deb[0]}" Version)" == "$version" ]]
+          [[ "$(dpkg-deb -f "${deb[0]}" Architecture)" == "amd64" ]]
+          chmod +x "${appimage[0]}"
+          set +e
+          timeout --signal=TERM 20s xvfb-run -a "${appimage[0]}" >/tmp/crafthub-appimage.log 2>&1
+          appimage_code=$?
+          set -e
+          if [[ $appimage_code -ne 124 ]]; then cat /tmp/crafthub-appimage.log; exit 1; fi
+          sudo apt-get install --yes "${deb[0]}"
+          set +e
+          timeout --signal=TERM 20s xvfb-run -a crafthub >/tmp/crafthub-deb.log 2>&1
+          deb_code=$?
+          set -e
+          if [[ $deb_code -ne 124 ]]; then cat /tmp/crafthub-deb.log; exit 1; fi
+          sudo apt-get remove --yes crafthub
+          ! command -v crafthub
+
+      - name: Linux package privacy scan
+        shell: pwsh
+        run: ./scripts/privacy-scan.ps1 -Mode LinuxRelease
+
+      - name: Upload validated Linux AppImage for the release job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: crafthub-linux-release-appimage
+          path: target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+
+      - name: Upload validated Linux Debian package for the release job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: crafthub-linux-release-deb
+          path: target/release/bundle/deb/*.deb
+          if-no-files-found: error
+
   windows:
+    needs: linux
     runs-on: windows-latest
     timeout-minutes: 90
     permissions:
@@ -127,10 +222,22 @@ jobs:
           }
           $manifest | ConvertTo-Json -Depth 5 | Set-Content "$env:NSIS_DIR/latest.json" -Encoding utf8
 
+      - name: Download validated Linux packages
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: crafthub-linux-release-appimage
+          path: ${{ env.NSIS_DIR }}
+
+      - name: Download validated Linux Debian package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: crafthub-linux-release-deb
+          path: ${{ env.NSIS_DIR }}
+
       - name: Checksums for every published file
         shell: pwsh
         run: |
-          $files = Get-ChildItem $env:NSIS_DIR -File | Where-Object { $_.Name -match '\.(exe|sig|json)$' }
+          $files = Get-ChildItem $env:NSIS_DIR -File | Where-Object { $_.Name -match '\.(exe|sig|json|AppImage|deb)$' }
           if (-not ($files | Where-Object Name -like '*-setup.exe')) { throw "installer missing" }
           $files | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } |
             Set-Content "$env:NSIS_DIR/SHA256SUMS.txt" -Encoding ascii
@@ -141,6 +248,8 @@ jobs:
         with:
           subject-path: |
             target/release/bundle/nsis/*-setup.exe
+            target/release/bundle/nsis/*.AppImage
+            target/release/bundle/nsis/*.deb
             target/release/bundle/nsis/SHA256SUMS.txt
 
       - name: Create draft release
@@ -148,7 +257,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $files = Get-ChildItem $env:NSIS_DIR -File | Where-Object { $_.Name -match '\.(exe|sig|json|txt)$' }
+          $files = Get-ChildItem $env:NSIS_DIR -File | Where-Object { $_.Name -match '\.(exe|sig|json|txt|AppImage|deb)$' }
           $body = @"
           Unofficial community application manager. Not affiliated with or endorsed by Storytold or ArtCraft.
 

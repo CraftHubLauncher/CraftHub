@@ -15,8 +15,9 @@ Source repository: <https://github.com/CraftHubLauncher/CraftHub>
 
 | OS | Status |
 |---|---|
-| Windows 10/11, x64 | Supported |
-| Windows on ARM, Linux, macOS | Not yet. The code has platform stubs that refuse to install anything. |
+| Windows 10/11, x64 | Supported: install, launch, update, rollback and uninstall Craft apps |
+| Linux x86_64 | AppImage and Debian packages available; Craft app management is not enabled yet |
+| Windows on ARM, macOS | Not yet |
 
 ## Supported applications
 
@@ -108,7 +109,7 @@ network drives and links are refused. Apps that are already installed stay where
 
 ## Building from source
 
-Requirements: Windows 10/11 x64, Node.js 22.16 or newer, Rust (version pinned in
+Windows requirements: Windows 10/11 x64, Node.js 22.16 or newer, Rust (version pinned in
 `rust-toolchain.toml`; rustup installs it automatically), Visual Studio 2022 Build Tools with
 "Desktop development with C++", and Microsoft Edge WebView2 (preinstalled on Windows 11).
 
@@ -125,6 +126,16 @@ cargo test --workspace                 # unit + integration tests, no network ne
 `build-release.ps1` keeps local folder paths out of the binaries at build time (path remapping,
 deterministic linking) and then verifies the result with `scripts/privacy-scan.ps1`, which fails on
 personal paths, machine details or secrets without printing them. Use it rather than plain `tauri build` for anything you distribute.
+
+Linux x86_64 packages require a Debian/Ubuntu build host with WebKitGTK 4.1,
+`libayatana-appindicator3`, `librsvg2`, `patchelf`, and the standard C/C++ build tools. Run
+`bash ./scripts/build-release-linux.sh` to produce both native Tauri formats. The AppImage is
+smoke-tested on Ubuntu CI; CachyOS/Arch users should verify it on the target distribution because
+WebKitGTK and desktop integration vary by distribution.
+
+Linux packages launch the CraftHub UI, but Craft application installation, update, rollback and
+uninstall are currently Windows-only. The non-Windows platform adapter returns an explicit
+unsupported result for those operations; this is a known compatibility limitation.
 
 There is also a command-line front end over the same engine, for scripting and smoke tests:
 
