@@ -129,6 +129,9 @@ jobs:
       - name: Repository privacy scan
         shell: pwsh
         run: ./scripts/privacy-scan.ps1 -Mode Repo
+      - name: Privacy scanner regression (PowerShell Core)
+        shell: pwsh
+        run: ./scripts/test-privacy-scan.ps1
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:

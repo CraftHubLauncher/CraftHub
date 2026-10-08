@@ -97,3 +97,7 @@ finally {
   if ($null -eq $oldHome) { Remove-Item Env:HOME -ErrorAction SilentlyContinue } else { $env:HOME = $oldHome }
   Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
+
+# The personal-identifier case intentionally ran the scanner expecting exit code 1.
+# Do not let that validated native/script exit code become this test's result.
+exit 0
