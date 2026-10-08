@@ -59,8 +59,14 @@ function Get-EnvNeedles {
   $n['this repository path'] = $repo
   try {
     $mail = (& git config --get user.email 2>$null)
-    if ($mail -and $mail.Trim().Length -ge 5) { $n['git user e-mail'] = $mail.Trim() }
+    $gitConfigExit = $LASTEXITCODE
+    if ($gitConfigExit -eq 0 -and $mail -and $mail.Trim().Length -ge 5) {
+      $n['git user e-mail'] = $mail.Trim()
+    }
   } catch { }
+  # A missing Git author is expected on a clean CI checkout. Do not let that
+  # informational probe's native exit code become the scanner's exit code.
+  $global:LASTEXITCODE = 0
   return $n
 }
 
@@ -344,3 +350,4 @@ if ($Mode -eq 'Release') {
   if (-not $bad) { Write-Host "repository privacy scan: no findings ($($assetFiles.Count) binary assets checked for metadata)" }
 }
 if ($bad) { exit 1 }
+exit 0
