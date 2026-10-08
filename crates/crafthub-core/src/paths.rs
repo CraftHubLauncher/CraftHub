@@ -391,6 +391,14 @@ mod tests {
         (t, p)
     }
 
+    // Some Windows CI images expose the system temp directory through a
+    // junction. Resolve it before creating the fixture so the test path is a
+    // regular local-drive path rather than an unresolved link-like path.
+    fn canonical_test_tempdir() -> tempfile::TempDir {
+        let base = crate::platform::dunce_canonicalize(&std::env::temp_dir()).unwrap();
+        tempfile::tempdir_in(base).unwrap()
+    }
+
     #[test]
     fn removes_only_manifest_files_and_keeps_user_data() {
         let (_t, p) = setup();
@@ -452,7 +460,7 @@ mod tests {
 
     #[test]
     fn library_root_validation() {
-        let t = tempfile::tempdir().unwrap();
+        let t = canonical_test_tempdir();
         let forbidden = vec![t.path().join("system")];
         std::fs::create_dir_all(&forbidden[0]).unwrap();
 
@@ -487,7 +495,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn library_root_rejects_junction_paths() {
-        let t = tempfile::tempdir().unwrap();
+        let t = canonical_test_tempdir();
         let real = t.path().join("real");
         std::fs::create_dir_all(&real).unwrap();
         let link = t.path().join("link");
