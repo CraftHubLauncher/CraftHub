@@ -11,6 +11,7 @@ use crate::error::{CoreError, Result};
 use crate::releases::Channel;
 
 const SCHEMA_VERSION: i64 = 3;
+const LEGACY_MIGRATION_MARKER: &str = "migration:io.github.crafthub-community.crafthub:v3";
 
 /// v2: install "libraries" (user-selectable install roots). `library` NULL means the
 /// default root, so v1 rows keep pointing at the folder they were installed into.
@@ -203,6 +204,13 @@ pub struct Registry {
     conn: Mutex<Connection>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MigrationReport {
+    pub imported_apps: usize,
+    pub skipped_conflicts: usize,
+    pub already_complete: bool,
+}
+
 impl Registry {
     pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path)?;
@@ -211,6 +219,109 @@ impl Registry {
 
     pub fn open_in_memory() -> Result<Self> {
         Self::init(Connection::open_in_memory()?)
+    }
+
+    /// Merges a v3 legacy registry into `destination` without modifying the legacy database.
+    ///
+    /// The legacy file is attached read-only by SQLite's normal WAL-aware machinery. All
+    /// destination writes occur in one transaction. Existing destination rows win conflicts;
+    /// legacy-only install rows and their manifests are imported together. A marker makes the
+    /// operation idempotent while keeping the legacy directory available for recovery.
+    pub fn merge_legacy_database(destination: &Path, legacy: &Path) -> Result<MigrationReport> {
+        let registry = Self::open(destination)?;
+        let mut legacy_uri = url::Url::from_file_path(legacy)
+            .map_err(|_| CoreError::Db("could not encode legacy database path".into()))?;
+        legacy_uri.set_query(Some("mode=ro"));
+        registry.with(|conn| {
+            conn.execute("ATTACH DATABASE ?1 AS legacy", [legacy_uri.as_str()])?;
+            let result = (|| {
+                validate_legacy_schema(conn)?;
+                let done: Option<String> = conn
+                    .query_row(
+                        "SELECT value FROM kv WHERE key = ?1",
+                        [LEGACY_MIGRATION_MARKER],
+                        |r| r.get(0),
+                    )
+                    .optional()?;
+                if done.is_some() {
+                    return Ok(MigrationReport {
+                        imported_apps: 0,
+                        skipped_conflicts: 0,
+                        already_complete: true,
+                    });
+                }
+
+                let source_apps: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM legacy.installs",
+                    [],
+                    |r| r.get(0),
+                )?;
+                let tx = conn.transaction()?;
+                tx.execute_batch(
+                    "CREATE TEMP TABLE migration_apps (app_id TEXT PRIMARY KEY);
+                     INSERT INTO migration_apps (app_id)
+                     SELECT l.app_id FROM legacy.installs l
+                     WHERE NOT EXISTS (SELECT 1 FROM installs d WHERE d.app_id = l.app_id);",
+                )?;
+                let imported_apps: i64 = tx.query_row(
+                    "SELECT COUNT(*) FROM migration_apps",
+                    [],
+                    |r| r.get(0),
+                )?;
+                let skipped_conflicts = source_apps - imported_apps;
+
+                tx.execute_batch(
+                    "INSERT INTO installs (
+                         app_id, version, tag, dir_name, executable, asset_name, sha256, verification,
+                         installed_at, prev_version, prev_tag, prev_dir_name, prev_sha256,
+                         prev_verification, library, shortcut_path
+                     )
+                     SELECT l.app_id, l.version, l.tag, l.dir_name, l.executable, l.asset_name,
+                            l.sha256, l.verification, l.installed_at, l.prev_version, l.prev_tag,
+                            l.prev_dir_name, l.prev_sha256, l.prev_verification, l.library,
+                            l.shortcut_path
+                     FROM legacy.installs l JOIN migration_apps m ON m.app_id = l.app_id;
+
+                     INSERT OR IGNORE INTO install_files (app_id, dir_name, rel_path, size, library)
+                     SELECT l.app_id, l.dir_name, l.rel_path, l.size, l.library
+                     FROM legacy.install_files l JOIN migration_apps m ON m.app_id = l.app_id;
+
+                     INSERT OR IGNORE INTO operations (
+                         id, app_id, kind, state, target_version, target_dir_name, library,
+                         started_at, finished_at, error
+                     )
+                     SELECT id, app_id, kind, state, target_version, target_dir_name, library,
+                            started_at, finished_at, error FROM legacy.operations;
+
+                     INSERT OR IGNORE INTO http_cache (url, etag, body, fetched_at)
+                     SELECT url, etag, body, fetched_at FROM legacy.http_cache;
+
+                     INSERT INTO events (app_id, kind, version, outcome, message, at)
+                     SELECT app_id, kind, version, outcome, message, at FROM legacy.events;
+
+                     INSERT OR IGNORE INTO settings (key, value)
+                     SELECT key, value FROM legacy.settings;
+
+                     INSERT OR IGNORE INTO kv (key, value)
+                     SELECT key, value FROM legacy.kv;
+
+                     INSERT INTO kv (key, value) VALUES ('migration:io.github.crafthub-community.crafthub:v3', 'complete');
+                     DROP TABLE migration_apps;",
+                )?;
+                tx.commit()?;
+                Ok(MigrationReport {
+                    imported_apps: imported_apps as usize,
+                    skipped_conflicts: skipped_conflicts as usize,
+                    already_complete: false,
+                })
+            })();
+            let detach = conn.execute("DETACH DATABASE legacy", []);
+            match (result, detach) {
+                (Ok(report), Ok(_)) => Ok(report),
+                (Err(e), _) => Err(e),
+                (Ok(_), Err(e)) => Err(e),
+            }
+        })
     }
 
     fn init(conn: Connection) -> Result<Self> {
@@ -654,6 +765,44 @@ impl Registry {
             .map(|_| ())
         })
     }
+}
+
+fn validate_legacy_schema(conn: &Connection) -> rusqlite::Result<()> {
+    let version: i64 = conn.pragma_query_value(Some("legacy"), "user_version", |r| r.get(0))?;
+    if version != SCHEMA_VERSION {
+        return Err(rusqlite::Error::InvalidParameterName(format!(
+            "unsupported legacy registry schema {version}; expected {SCHEMA_VERSION}"
+        )));
+    }
+    for table in [
+        "installs",
+        "install_files",
+        "operations",
+        "http_cache",
+        "events",
+        "settings",
+        "kv",
+    ] {
+        let exists: Option<String> = conn
+            .query_row(
+                "SELECT name FROM legacy.sqlite_master WHERE type = 'table' AND name = ?1",
+                [table],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if exists.is_none() {
+            return Err(rusqlite::Error::InvalidParameterName(format!(
+                "legacy registry is missing table {table}"
+            )));
+        }
+    }
+    let integrity: String = conn.query_row("PRAGMA legacy.integrity_check", [], |r| r.get(0))?;
+    if integrity != "ok" {
+        return Err(rusqlite::Error::InvalidParameterName(
+            "legacy registry integrity check failed".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn set_op_state(c: &Connection, id: &str, state: &str) -> rusqlite::Result<()> {

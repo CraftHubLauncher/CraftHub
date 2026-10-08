@@ -63,6 +63,7 @@ pub fn run() {
         .on_window_event(desktop::on_window_event)
         .setup(|app| {
             let data_dir = default_data_dir()
+                .map_err(|e| e.to_string())?
                 .or_else(|| app.path().app_local_data_dir().ok())
                 .ok_or("cannot determine the data folder")?;
             let logs_dir = data_dir.join("logs");

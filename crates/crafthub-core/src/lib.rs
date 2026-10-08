@@ -31,35 +31,83 @@ const LEGACY_DATA_DIR_NAMES: &[&str] = &["io.github.crafthub-community.crafthub"
 
 /// `%LOCALAPPDATA%\<identifier>` (database, logs). `CRAFTHUB_ROOT` overrides it to
 /// `<CRAFTHUB_ROOT>\Data` for isolated testing.
-pub fn default_data_dir() -> Option<std::path::PathBuf> {
+pub fn default_data_dir() -> Result<Option<std::path::PathBuf>> {
     if let Some(r) = std::env::var_os("CRAFTHUB_ROOT") {
-        return Some(std::path::PathBuf::from(r).join("Data"));
+        return Ok(Some(std::path::PathBuf::from(r).join("Data")));
     }
-    let local = std::path::PathBuf::from(std::env::var_os("LOCALAPPDATA")?);
-    Some(migrate_data_dir(
+    let Some(local) = std::env::var_os("LOCALAPPDATA") else {
+        return Ok(None);
+    };
+    let local = std::path::PathBuf::from(local);
+    Ok(Some(migrate_data_dir(
         &local,
         APP_IDENTIFIER,
         LEGACY_DATA_DIR_NAMES,
-    ))
+    )?))
 }
 
 /// Returns `<base>/<current>`, first renaming the newest existing legacy folder into place
 /// if the current one does not exist yet. A failed rename leaves everything untouched.
-fn migrate_data_dir(base: &std::path::Path, current: &str, legacy: &[&str]) -> std::path::PathBuf {
+fn migrate_data_dir(
+    base: &std::path::Path,
+    current: &str,
+    legacy: &[&str],
+) -> Result<std::path::PathBuf> {
     let target = base.join(current);
-    if !target.exists() {
-        for old in legacy.iter().rev() {
-            let from = base.join(old);
-            if from.is_dir() {
-                match std::fs::rename(&from, &target) {
-                    Ok(()) => tracing::info!(from = %old, "migrated data folder"),
-                    Err(e) => tracing::warn!(error = %e, "could not migrate data folder"),
-                }
-                break;
-            }
-        }
+    if let Ok(meta) = std::fs::symlink_metadata(&target)
+        && crate::platform::is_link_like(&meta)
+    {
+        return Err(CoreError::InvalidInput(
+            "Current data folder is a link or junction; migration stopped safely.".into(),
+        ));
     }
-    target
+    for old in legacy.iter().rev() {
+        let from = base.join(old);
+        let Ok(from_meta) = std::fs::symlink_metadata(&from) else {
+            continue;
+        };
+        if crate::platform::is_link_like(&from_meta) {
+            return Err(CoreError::InvalidInput(
+                "Legacy data folder is a link or junction; migration stopped safely.".into(),
+            ));
+        }
+        let legacy_db = from.join("crafthub.db");
+        if !legacy_db.is_file() {
+            return Err(CoreError::Db(
+                "Legacy data folder has no readable registry database; migration stopped safely."
+                    .into(),
+            ));
+        }
+        if crate::platform::is_link_like(
+            &std::fs::symlink_metadata(&legacy_db)
+                .map_err(CoreError::io("checking legacy registry database"))?,
+        ) {
+            return Err(CoreError::InvalidInput(
+                "Legacy registry database is a link or junction; migration stopped safely.".into(),
+            ));
+        }
+        let destination_db = target.join("crafthub.db");
+        if destination_db.exists()
+            && crate::platform::is_link_like(
+                &std::fs::symlink_metadata(&destination_db)
+                    .map_err(CoreError::io("checking current registry database"))?,
+            )
+        {
+            return Err(CoreError::InvalidInput(
+                "Current registry database is a link or junction; migration stopped safely.".into(),
+            ));
+        }
+        std::fs::create_dir_all(&target).map_err(CoreError::io("creating current data folder"))?;
+        let report = crate::registry::Registry::merge_legacy_database(&destination_db, &legacy_db)?;
+        tracing::info!(
+            imported_apps = report.imported_apps,
+            skipped_conflicts = report.skipped_conflicts,
+            already_complete = report.already_complete,
+            "legacy registry migration completed; legacy data retained"
+        );
+        break;
+    }
+    Ok(target)
 }
 
 /// Builds the production engine configuration rooted at `%LOCALAPPDATA%\Programs\CraftHub`
@@ -82,6 +130,79 @@ pub fn production_config(data_dir: &std::path::Path) -> Result<EngineConfig> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::{Path, PathBuf};
+
+    use crate::registry::{InstallRecord, Registry, Settings};
+
+    fn db(dir: &Path) -> PathBuf {
+        dir.join("crafthub.db")
+    }
+
+    fn seed_registry(path: &Path, app_id: &str, version_prefix: &str) -> Registry {
+        let registry = Registry::open(path).unwrap();
+        let library = Some(format!("D:\\CraftApps\\{app_id}"));
+        let shortcut = Some(format!("C:\\Users\\Example\\Desktop\\{app_id}.lnk"));
+        for (n, version) in [
+            (1, format!("{version_prefix}.1.0")),
+            (2, format!("{version_prefix}.2.0")),
+        ] {
+            let op = format!("op-{app_id}-{n}");
+            let dir = format!("{version}_abcd");
+            registry
+                .begin_operation(
+                    &op,
+                    app_id,
+                    "install",
+                    Some(&version),
+                    Some(&dir),
+                    library.as_deref(),
+                    n,
+                )
+                .unwrap();
+            registry
+                .prepare_activation(
+                    &op,
+                    app_id,
+                    &dir,
+                    library.as_deref(),
+                    &[("app.exe".into(), 10)],
+                )
+                .unwrap();
+            registry
+                .commit_activation(
+                    &op,
+                    &InstallRecord {
+                        app_id: app_id.into(),
+                        version,
+                        tag: format!("v{n}"),
+                        dir_name: dir,
+                        executable: "app.exe".into(),
+                        asset_name: "app.zip".into(),
+                        sha256: format!("{n:064x}"),
+                        verification: "test".into(),
+                        installed_at: n,
+                        previous: None,
+                        library: library.clone(),
+                        shortcut_path: shortcut.clone(),
+                    },
+                )
+                .unwrap();
+        }
+        registry.save_settings(&Settings::default()).unwrap();
+        registry
+            .record_event(
+                app_id,
+                "install",
+                Some("2.2.0"),
+                "success",
+                Some("fixture"),
+                2,
+            )
+            .unwrap();
+        registry.kv_set("fixture", "preserve").unwrap();
+        registry
+    }
+
     #[test]
     fn identifier_matches_tauri_config() {
         let conf: serde_json::Value =
@@ -90,55 +211,143 @@ mod tests {
     }
 
     #[test]
-    fn data_dir_migration_renames_legacy_folder_once() {
+    fn migrates_legacy_only_and_retains_source() {
         let t = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(t.path().join("old.id")).unwrap();
-        std::fs::write(t.path().join("old.id").join("crafthub.db"), b"db").unwrap();
-        let dir = super::migrate_data_dir(t.path(), "new.id", &["old.id"]);
-        assert_eq!(std::fs::read(dir.join("crafthub.db")).unwrap(), b"db");
-        assert!(!t.path().join("old.id").exists());
-        // An existing current folder is never overwritten.
-        std::fs::create_dir_all(t.path().join("old.id")).unwrap();
-        let again = super::migrate_data_dir(t.path(), "new.id", &["old.id"]);
-        assert_eq!(again, dir);
-        assert!(t.path().join("old.id").exists());
+        let legacy = t.path().join("old.id");
+        std::fs::create_dir_all(&legacy).unwrap();
+        let _source = seed_registry(&db(&legacy), "photocraft", "1");
+        assert!(legacy.join("crafthub.db-wal").exists());
+        let current = super::migrate_data_dir(t.path(), "new.id", &["old.id"]).unwrap();
+        let imported = Registry::open(&db(&current)).unwrap();
+        let record = imported.get_install("photocraft").unwrap().unwrap();
+        assert_eq!(record.version, "1.2.0");
+        assert_eq!(record.previous.unwrap().version, "1.1.0");
+        assert_eq!(
+            imported
+                .files_for("photocraft", "1.2.0_abcd")
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(legacy.join("crafthub.db").exists());
     }
 
     #[test]
-    fn final_identifier_migrates_provisional_data_without_overwriting_current_data() {
+    fn current_only_is_unchanged() {
         let t = tempfile::tempdir().unwrap();
-        let legacy = t.path().join("io.github.crafthub-community.crafthub");
         let current = t.path().join(super::APP_IDENTIFIER);
-        std::fs::create_dir_all(&legacy).unwrap();
-        std::fs::write(legacy.join("crafthub.db"), b"legacy database").unwrap();
+        std::fs::create_dir_all(&current).unwrap();
+        let _destination = seed_registry(&db(&current), "photocraft", "9");
+        let result = super::migrate_data_dir(t.path(), super::APP_IDENTIFIER, &["old.id"]).unwrap();
+        assert_eq!(result, current);
+        assert_eq!(
+            Registry::open(&db(&current))
+                .unwrap()
+                .get_install("photocraft")
+                .unwrap()
+                .unwrap()
+                .version,
+            "9.2.0"
+        );
+    }
 
-        let migrated = super::migrate_data_dir(
-            t.path(),
-            super::APP_IDENTIFIER,
-            super::LEGACY_DATA_DIR_NAMES,
-        );
-        assert_eq!(migrated, current);
-        assert_eq!(
-            std::fs::read(current.join("crafthub.db")).unwrap(),
-            b"legacy database"
-        );
-        assert!(!legacy.exists());
-
-        // A retry never overwrites a current folder or deletes a remaining legacy folder.
+    #[test]
+    fn both_directories_import_into_empty_destination_and_are_idempotent() {
+        let t = tempfile::tempdir().unwrap();
+        let legacy = t.path().join("old.id");
+        let current = t.path().join("new.id");
         std::fs::create_dir_all(&legacy).unwrap();
-        std::fs::write(legacy.join("keep.txt"), b"keep").unwrap();
+        let _source = seed_registry(&db(&legacy), "photocraft", "1");
+        std::fs::create_dir_all(&current).unwrap();
+        let _empty = Registry::open(&db(&current)).unwrap();
+
+        super::migrate_data_dir(t.path(), "new.id", &["old.id"]).unwrap();
+        super::migrate_data_dir(t.path(), "new.id", &["old.id"]).unwrap();
+        let destination = Registry::open(&db(&current)).unwrap();
+        assert_eq!(destination.list_installs().unwrap().len(), 1);
+        assert_eq!(destination.recent_events(10).unwrap().len(), 1);
         assert_eq!(
-            super::migrate_data_dir(
-                t.path(),
-                super::APP_IDENTIFIER,
-                super::LEGACY_DATA_DIR_NAMES
-            ),
-            current
+            destination.kv_get("fixture").unwrap().as_deref(),
+            Some("preserve")
         );
+    }
+
+    #[test]
+    fn populated_destination_wins_conflicts() {
+        let t = tempfile::tempdir().unwrap();
+        let legacy = t.path().join("old.id");
+        let current = t.path().join("new.id");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::create_dir_all(&current).unwrap();
+        let _source = seed_registry(&db(&legacy), "photocraft", "1");
+        drop(_source);
+        let _source_other = seed_registry(&db(&legacy), "designcraft", "3");
+        let _destination = seed_registry(&db(&current), "photocraft", "9");
+        let report = Registry::merge_legacy_database(&db(&current), &db(&legacy)).unwrap();
+        assert_eq!(report.imported_apps, 1);
+        assert_eq!(report.skipped_conflicts, 1);
+        let destination = Registry::open(&db(&current)).unwrap();
         assert_eq!(
-            std::fs::read(current.join("crafthub.db")).unwrap(),
-            b"legacy database"
+            destination
+                .get_install("photocraft")
+                .unwrap()
+                .unwrap()
+                .version,
+            "9.2.0"
         );
-        assert!(legacy.join("keep.txt").exists());
+        let imported = destination.get_install("designcraft").unwrap().unwrap();
+        assert_eq!(imported.version, "3.2.0");
+        assert_eq!(
+            imported.library.as_deref(),
+            Some("D:\\CraftApps\\designcraft")
+        );
+        assert!(imported.shortcut_path.is_some());
+        assert_eq!(imported.previous.unwrap().version, "3.1.0");
+    }
+
+    #[test]
+    fn failed_migration_is_safe_and_retryable() {
+        let t = tempfile::tempdir().unwrap();
+        let legacy = t.path().join("old.id");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(legacy.join("crafthub.db"), b"not sqlite").unwrap();
+        assert!(super::migrate_data_dir(t.path(), "new.id", &["old.id"]).is_err());
+        assert!(legacy.exists());
+
+        std::fs::remove_file(legacy.join("crafthub.db")).unwrap();
+        let _source = seed_registry(&db(&legacy), "photocraft", "1");
+        let current = super::migrate_data_dir(t.path(), "new.id", &["old.id"]).unwrap();
+        assert!(
+            Registry::open(&db(&current))
+                .unwrap()
+                .get_install("photocraft")
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn unsupported_legacy_schema_fails_without_replacing_destination() {
+        let t = tempfile::tempdir().unwrap();
+        let legacy = t.path().join("old.id");
+        let current = t.path().join("new.id");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::create_dir_all(&current).unwrap();
+        let _destination = seed_registry(&db(&current), "photocraft", "9");
+        let legacy_db = rusqlite::Connection::open(db(&legacy)).unwrap();
+        legacy_db.pragma_update(None, "user_version", 99).unwrap();
+        drop(legacy_db);
+
+        assert!(super::migrate_data_dir(t.path(), "new.id", &["old.id"]).is_err());
+        assert_eq!(
+            Registry::open(&db(&current))
+                .unwrap()
+                .get_install("photocraft")
+                .unwrap()
+                .unwrap()
+                .version,
+            "9.2.0"
+        );
+        assert!(legacy.join("crafthub.db").exists());
     }
 }

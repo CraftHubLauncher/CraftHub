@@ -79,7 +79,8 @@ async fn run(args: Vec<String>) -> Result<(), CoreError> {
         println!("{USAGE}");
         return Ok(());
     };
-    let data = default_data_dir().ok_or_else(|| CoreError::Unsupported("no data folder".into()))?;
+    let data =
+        default_data_dir()?.ok_or_else(|| CoreError::Unsupported("no data folder".into()))?;
     let engine = Engine::new(production_config(&data)?)?;
     match cmd {
         "list" => print_apps(&engine.list_apps()?),
