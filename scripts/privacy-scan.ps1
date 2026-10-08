@@ -55,9 +55,12 @@ $RepoEmailOk = '@(example\.(com|org|net)|users\.noreply\.github\.com|noreply\.gi
 
 function Get-EnvNeedles {
   $n = [ordered]@{}
-  if ($env:USERNAME -and $env:USERNAME.Length -ge 3) { $n['this user name'] = $env:USERNAME }
-  if ($env:COMPUTERNAME -and $env:COMPUTERNAME.Length -ge 3) { $n['this computer name'] = $env:COMPUTERNAME }
-  if ($env:USERPROFILE) { $n['this profile path'] = $env:USERPROFILE }
+  $userName = if ($env:USERNAME) { $env:USERNAME } else { $env:USER }
+  $computerName = if ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { $env:HOSTNAME }
+  $profilePath = if ($env:USERPROFILE) { $env:USERPROFILE } else { $env:HOME }
+  if ($userName -and $userName.Length -ge 3) { $n['this user name'] = $userName }
+  if ($computerName -and $computerName.Length -ge 3) { $n['this computer name'] = $computerName }
+  if ($profilePath) { $n['this profile path'] = $profilePath }
   $n['this repository path'] = $repo
   try {
     $mail = (& git config --get user.email 2>$null)
@@ -106,7 +109,7 @@ function Get-ReleaseTargets {
 }
 
 function Get-RepoTargets([string]$root) {
-  $skipDir = '\\(node_modules|target|dist|gen|\.git)(\\|$)'
+  $skipDir = '[\\/](node_modules|target|dist|gen|\.git)([\\/]|$)'
   $binary = '\.(png|ico|icns|jpg|jpeg|gif|zip|exe|dll|pdb|db|woff2?|ttf)$'
   Get-ChildItem $root -Recurse -File -Force | Where-Object {
     $_.FullName.Substring($root.Length) -notmatch $skipDir -and $_.Name -notmatch $binary
@@ -220,7 +223,7 @@ function Get-ImageFindings([byte[]]$bytes, [string]$name) {
 }
 
 function Get-RepoBinaryAssets([string]$root) {
-  $skipDir = '\\(node_modules|target|dist|gen|\.git)(\\|$)'
+  $skipDir = '[\\/](node_modules|target|dist|gen|\.git)([\\/]|$)'
   $binary = '\.(png|ico|icns|cur|jpg|jpeg|gif|webp|bmp|tif|tiff|zip|7z|rar|exe|dll|pdb|msi|db|sqlite|pfx|p12|key|pem|jks|keystore|snk|woff2?|ttf|otf)$'
   Get-ChildItem $root -Recurse -File -Force | Where-Object {
     $_.FullName.Substring($root.Length) -notmatch $skipDir -and $_.Name -match $binary
@@ -280,6 +283,10 @@ if ($SelfTest) {
   New-Item -ItemType Directory $tmp | Out-Null
   try {
     $a36 = 'a' * 36
+    $selfTestUser = if ($env:USERNAME) { $env:USERNAME } else { $env:USER }
+    if (-not $selfTestUser -or $selfTestUser.Length -lt 3) {
+      throw 'self-test cannot determine the current username from USERNAME or USER'
+    }
     $samples = [ordered]@{
       'user-profile path'      = 'C:' + '\Users\' + 'samplebuilder\src\lib.rs'
       'cargo/rustup home path' = 'D:\x\' + '.cargo\registry\src\foo.rs'
@@ -289,7 +296,7 @@ if ($SelfTest) {
       'update-signing secret key' = 'untrusted comment: rsign ' + 'encrypted secret key'
       'AWS access key'         = 'AKIA' + ('Q' * 16)
       'e-mail address'         = 'sample.person' + '@' + 'mail-provider.test'
-      'this user name'         = 'built by ' + $env:USERNAME
+      'this user name'         = 'built by ' + $selfTestUser
     }
     $i = 0
     foreach ($k in $samples.Keys) { Set-Content (Join-Path $tmp "s$i.txt") $samples[$k] -Encoding ascii; $i++ }
