@@ -191,7 +191,8 @@ pub fn engine_config(server: &MockServer, dir: &std::path::Path) -> EngineConfig
 pub async fn harness(releases: &[FixtureRelease]) -> Harness {
     let server = MockServer::start().await;
     mount_releases(&server, releases).await;
-    let dir = tempfile::tempdir().unwrap();
+    let temp_base = crafthub_core::platform::dunce_canonicalize(&std::env::temp_dir()).unwrap();
+    let dir = tempfile::tempdir_in(temp_base).unwrap();
     let engine = Arc::new(Engine::new(engine_config(&server, dir.path())).unwrap());
     Harness {
         server,

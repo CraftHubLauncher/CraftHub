@@ -703,7 +703,25 @@ async fn update_all_skips_app_with_real_running_process() {
         .stdout(std::process::Stdio::null())
         .spawn()
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "helper process exited before readiness"
+        );
+        if h.engine.app_view("testapp").unwrap().running {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "helper process remained alive but CraftHub did not observe it as running"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "helper process exited immediately before update attempt"
+    );
 
     h.set_releases(&[FixtureRelease::good("2.0.0")]).await;
     let s = h.engine.update_all(null_sink()).await.unwrap();
