@@ -16,6 +16,13 @@ npm ci
 bash ./scripts/build-release-linux.sh
 ```
 
+The build command only generates and checks that both package files exist. Package-aware privacy
+validation is a separate, repeatable step and does not recompile CraftHub:
+
+```powershell
+pwsh -NoProfile -File ./scripts/scan-linux-packages.ps1 -AppImagePath ./target/release/bundle/appimage/CraftHub_<version>_amd64.AppImage -DebPath ./target/release/bundle/deb/crafthub_<version>_amd64.deb
+```
+
 The host needs `libwebkit2gtk-4.1-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`,
 `patchelf`, `xvfb`, and the standard C/C++ build tools. CI validates package metadata, launches
 both packages under Xvfb, runs the Linux release privacy scan, and uploads the AppImage and Debian

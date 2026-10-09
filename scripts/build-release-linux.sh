@@ -33,8 +33,6 @@ fi
 cargo metadata --locked --format-version 1 >/dev/null
 npx tauri build --bundles appimage,deb
 
-pwsh -NoProfile -File ./scripts/privacy-scan.ps1 -Mode LinuxRelease
-
 appimages=(target/release/bundle/appimage/*.AppImage)
 debs=(target/release/bundle/deb/*.deb)
 [[ -f "${appimages[0]}" ]] || { echo 'AppImage missing' >&2; exit 1; }

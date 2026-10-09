@@ -6,7 +6,8 @@
   -Mode Release  Scans target\release\crafthub.exe and the NSIS installer(s), including their
                  Windows version-info fields.
   -Mode LinuxRelease
-                 Scans the AppImage and Debian bundle produced by the Linux release build.
+                 Delegates to scan-linux-packages.ps1, which extracts and scans the AppImage
+                 runtime/payload and Debian contents independently.
   -Mode Repo     Scans every committable text file (skips node_modules, target, dist, gen), and
                  every binary asset: images must carry no metadata (PNG text/EXIF/time/unknown
                  chunks, also inside ICO/ICNS; JPEG/WebP EXIF; XMP), decoded metadata and ICC
@@ -371,8 +372,8 @@ if ($Mode -eq 'Release') {
   if ($appimages.Count -ne 1) { Write-Host "missing or unexpected AppImage count: $($appimages.Count)"; $bad++ }
   if ($debs.Count -ne 1) { Write-Host "missing or unexpected Debian package count: $($debs.Count)"; $bad++ }
   if (-not $bad) {
-    $linuxTargets = @($appimages | ForEach-Object FullName) + @($debs | ForEach-Object FullName)
-    $bad = Invoke-Scan $linuxTargets 'binary' $needles $null
+    & (Join-Path $PSScriptRoot 'scan-linux-packages.ps1') -AppImagePath $appimages[0].FullName -DebPath $debs[0].FullName
+    $bad = $LASTEXITCODE
   }
   if (-not $bad) { Write-Host 'Linux release privacy scan: AppImage and Debian packages passed' }
 } else {
