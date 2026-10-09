@@ -158,6 +158,78 @@ jobs:
       - name: Build AppImage and Debian packages
         run: bash ./scripts/build-release-linux.sh
 
+      - name: Inspect unverified Linux packages (sanitized, never uploaded)
+        if: always()
+        shell: bash
+        run: |
+          # These packages are intentionally not uploaded: they are unverified and may contain
+          # the sensitive data this diagnostic is investigating. Keep all inspection on-runner.
+          set +e
+          diag="${RUNNER_TEMP}/crafthub-linux-package-diagnostic"
+          rm -rf "$diag"
+          mkdir -p "$diag"
+          appimage=(target/release/bundle/appimage/*.AppImage)
+          deb=(target/release/bundle/deb/*.deb)
+
+          if [[ -f "${appimage[0]}" ]]; then
+            mkdir -p "$diag/appimage-extract"
+            (cd "$diag/appimage-extract" && "${GITHUB_WORKSPACE}/${appimage[0]}" --appimage-extract >/dev/null 2>&1)
+            if [[ -d "$diag/appimage-extract/squashfs-root" ]]; then
+              mv "$diag/appimage-extract/squashfs-root" "$diag/appimage-root"
+            else
+              echo 'DIAGNOSTIC AppImage payload extraction unavailable'
+            fi
+          fi
+
+          if [[ -f "${deb[0]}" ]]; then
+            dpkg-deb -x "${deb[0]}" "$diag/deb-root" >/dev/null 2>&1
+            if [[ ! -d "$diag/deb-root" ]]; then
+              echo 'DIAGNOSTIC DEB payload extraction unavailable'
+            fi
+          fi
+
+          python3 - "$diag" "${appimage[0]}" "${deb[0]}" <<'PY' 2>/dev/null
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          unix_home = re.compile(rb'/(?:home|Users)/(?!runner/|<)[a-z_][a-z0-9_.-]{1,31}/', re.I)
+          email = re.compile(rb'[A-Za-z0-9._%+-]{2,64}@[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){1,3}\b')
+
+          def scan_file(path, label):
+              try:
+                  data = path.read_bytes()
+              except Exception:
+                  return
+              findings = []
+              for category, pattern in (('unix home path', unix_home), ('e-mail address', email)):
+                  count = len(pattern.findall(data))
+                  if count:
+                      findings.append((category, count))
+              if findings:
+                  # Only controlled package-relative names, categories, and counts are printed.
+                  rel = path.name if label.endswith('outer file') else os.path.relpath(path, root).replace('\\', '/')
+                  for category, count in findings:
+                      print(f'DIAGNOSTIC {label}/{rel} : {category} ({count})')
+
+          def scan_tree(path, label):
+              if path.is_file():
+                  scan_file(path, label)
+              elif path.is_dir():
+                  for child in path.rglob('*'):
+                      if child.is_file():
+                          scan_file(child, label)
+
+          for raw, label in ((sys.argv[2], 'AppImage outer file'), (sys.argv[3], 'DEB outer file')):
+              if raw and raw != '':
+                  scan_file(Path(raw), label)
+          scan_tree(root / 'appimage-root', 'AppImage payload')
+          scan_tree(root / 'deb-root', 'DEB payload')
+          PY
+          exit 0
+
       - name: Verify package metadata and launch behavior
         shell: bash
         run: |
