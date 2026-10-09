@@ -183,40 +183,101 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          shopt -s nullglob
+          fail() { echo "Linux verification failure: $1" >&2; exit 1; }
+          stage() { echo "Linux verification stage: $1"; }
+          diagnose_log() {
+            local log="$1"
+            if grep -Eqi 'fuse|fusermount|mount|AppImage' "$log"; then
+              echo 'AppImage runtime or FUSE support'
+            elif grep -Eqi 'webkit|webkitgtk|gtk|libayatana|libssl|GLIBC|not found|shared object' "$log"; then
+              echo 'missing Linux runtime library or WebKitGTK dependency'
+            elif grep -Eqi 'sandbox|setuid|permission denied|operation not permitted' "$log"; then
+              echo 'sandbox or permission restriction'
+            elif grep -Eqi 'display|DISPLAY|Xvfb|x server' "$log"; then
+              echo 'Xvfb or display initialization'
+            else
+              echo 'unexpected process exit; captured output was withheld'
+            fi
+          }
+          installed=0
+          app_log="$(mktemp)"
+          deb_install_log="$(mktemp)"
+          deb_log="$(mktemp)"
+          cleanup() {
+            local status=$?
+            if [[ "$installed" -eq 1 ]]; then
+              stage 'DEB removal (cleanup)'
+              if sudo apt-get remove --yes crafthub > /dev/null 2>"$deb_install_log"; then
+                installed=0
+              else
+                echo 'Linux verification cleanup failure: DEB removal did not complete' >&2
+                status=1
+              fi
+            fi
+            rm -f "$app_log" "$deb_install_log" "$deb_log"
+            trap - EXIT
+            exit "$status"
+          }
+          trap cleanup EXIT
+
+          stage 'package discovery'
           appimage=(target/release/bundle/appimage/*.AppImage)
           deb=(target/release/bundle/deb/*.deb)
-          [[ ${#appimage[@]} -eq 1 && ${#deb[@]} -eq 1 ]]
-          [[ "$(dpkg-deb -f "${deb[0]}" Package)" == "crafthub" ]]
-          [[ "$(dpkg-deb -f "${deb[0]}" Version)" == "0.1.0" ]]
-          [[ "$(dpkg-deb -f "${deb[0]}" Architecture)" == "amd64" ]]
-          file "${appimage[0]}" "${deb[0]}"
-          chmod +x "${appimage[0]}"
+          [[ ${#appimage[@]} -eq 1 ]] || fail "expected exactly one AppImage, found ${#appimage[@]}"
+          [[ ${#deb[@]} -eq 1 ]] || fail "expected exactly one DEB, found ${#deb[@]}"
+          [[ -f "${appimage[0]}" ]] || fail 'discovered AppImage is not a regular file'
+          [[ -f "${deb[0]}" ]] || fail 'discovered DEB is not a regular file'
+
+          stage 'DEB metadata'
+          expected_name='crafthub'
+          expected_version='0.1.0'
+          expected_arch='amd64'
+          actual_name=$(dpkg-deb -f "${deb[0]}" Package 2>"$deb_install_log") || fail 'dpkg-deb could not read the package name'
+          actual_version=$(dpkg-deb -f "${deb[0]}" Version 2>"$deb_install_log") || fail 'dpkg-deb could not read the package version'
+          actual_arch=$(dpkg-deb -f "${deb[0]}" Architecture 2>"$deb_install_log") || fail 'dpkg-deb could not read the package architecture'
+          [[ "$actual_name" == "$expected_name" ]] || { echo "Expected package name: $expected_name; actual: $actual_name" >&2; fail 'DEB package name mismatch'; }
+          [[ "$actual_version" == "$expected_version" ]] || { echo "Expected package version: $expected_version; actual: $actual_version" >&2; fail 'DEB package version mismatch'; }
+          [[ "$actual_arch" == "$expected_arch" ]] || { echo "Expected package architecture: $expected_arch; actual: $actual_arch" >&2; fail 'DEB package architecture mismatch'; }
+
+          stage 'AppImage launch'
+          command -v xvfb-run >/dev/null 2>&1 || fail 'xvfb-run is unavailable'
+          command -v timeout >/dev/null 2>&1 || fail 'timeout is unavailable'
+          chmod +x "${appimage[0]}" || fail 'could not mark AppImage executable'
 
           # A GUI process staying alive under Xvfb proves the AppImage starts. A
           # non-timeout exit is a failed launch, not a tolerated smoke-test result.
           set +e
-          timeout --signal=TERM 20s xvfb-run -a "${appimage[0]}" >/tmp/crafthub-appimage.log 2>&1
+          timeout --signal=TERM 20s xvfb-run -a "${appimage[0]}" >"$app_log" 2>&1
           appimage_code=$?
           set -e
           if [[ $appimage_code -ne 124 ]]; then
-            cat /tmp/crafthub-appimage.log
-            echo "AppImage exited before the launch window (status $appimage_code)" >&2
-            exit 1
+            fail "AppImage launch exited with status $appimage_code ($(diagnose_log "$app_log"))"
           fi
 
-          sudo apt-get install --yes "${deb[0]}"
-          command -v crafthub
+          stage 'DEB installation'
+          if ! sudo apt-get install --yes "${deb[0]}" > /dev/null 2>"$deb_install_log"; then
+            fail "DEB installation failed ($(diagnose_log "$deb_install_log"))"
+          fi
+          installed=1
+          command -v crafthub >/dev/null 2>&1 || fail 'DEB installation completed but crafthub was not installed'
+
+          stage 'DEB launch'
           set +e
-          timeout --signal=TERM 20s xvfb-run -a crafthub >/tmp/crafthub-deb.log 2>&1
+          timeout --signal=TERM 20s xvfb-run -a crafthub >"$deb_log" 2>&1
           deb_code=$?
           set -e
           if [[ $deb_code -ne 124 ]]; then
-            cat /tmp/crafthub-deb.log
-            echo "Installed Debian package exited before the launch window (status $deb_code)" >&2
-            exit 1
+            fail "DEB launch exited with status $deb_code ($(diagnose_log "$deb_log"))"
           fi
-          sudo apt-get remove --yes crafthub
-          ! command -v crafthub
+
+          stage 'DEB removal'
+          if ! sudo apt-get remove --yes crafthub > /dev/null 2>"$deb_install_log"; then
+            fail "DEB removal failed ($(diagnose_log "$deb_install_log"))"
+          fi
+          installed=0
+          command -v crafthub >/dev/null 2>&1 && fail 'DEB removal completed but crafthub remains installed'
+          echo 'Linux verification completed successfully'
 
       - name: Linux package privacy scan
         shell: pwsh
